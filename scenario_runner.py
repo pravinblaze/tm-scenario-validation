@@ -36,11 +36,11 @@ scenario_data = {
     "location1": {
         "ego_vehicle": {
             "model": "vehicle.lincoln.mkz2017",
-            "position": [-8.1, 188.2, 5]
+            "position": [78.1, 202.0, 5]
         },
         "traffic_vehicle": {
             "model": "vehicle.lincoln.mkz2017",
-            "position": [-4.9, 140, 5]
+            "position": [48.8, 205.3, 5]
         }
     }
 }
@@ -58,12 +58,13 @@ def spawn_vehicle(data):
         if actor is None:
             print("Actor is still none !")
         print("Trying to spawn vehicle with blueprint : ", blueprint)
-    print("Vehicle id : ", actor.id, " spawned!")
+    print("Vehicle id : ", actor.id, " spawned")
     return actor
 
 
 def print_tree(tree):
-    print(py_trees.display.print_ascii_tree(root=tree.root, show_status=True))
+    # print(py_trees.display.print_ascii_tree(root=tree.root, show_status=True))
+    pass
 
 
 def magnitude(vector):
@@ -77,10 +78,11 @@ try:
     lat_pid = carla.TM_Parameters()
 
     long_pid.extend([0.1, 0.15, 0.01])
-    long_high_pid.extend([5.0, 0.0, 0.1])
+    long_high_pid.extend([5, 0.09, 0.01])
     lat_pid.extend([10.0, 0.01, 0.1])
 
     traffic_manager = carla.TrafficManager(long_pid, long_high_pid, lat_pid, 0.0, 0.0, client)
+    tm = traffic_manager
     traffic_manager.start()
     time.sleep(1)
 
@@ -92,7 +94,7 @@ try:
         scenario_data["location1"]["traffic_vehicle"]
     )
     if vehicle is None or traffic_vehicle is None:
-        print("Couldn't spawn vehicles !")
+        print("Couldn't spawn vehicles!")
         exit()
 
     # Register vehicles with traffic manager
@@ -100,13 +102,15 @@ try:
     vehicle_vec.extend([vehicle, traffic_vehicle])
 
     traffic_manager.register_vehicles(vehicle_vec)
+    print("Registered vehicles with TM")
 
     # Create behaviour tree
 
-    scenario = LaneCutIn(world, "LaneCutInDemo", tm, vehicle, [traffic_vehicle])
+    scenario = LaneCutIn(world, "LaneCutInDemo", traffic_manager, vehicle, [traffic_vehicle])
     root = scenario.create_tree()
     behaviour_tree = py_trees.trees.BehaviourTree(root=root)
     behaviour_tree.tick()
+    print("Started behaviour tree!")
 
     # Set sensor
 
@@ -161,6 +165,8 @@ try:
 
     lidar_sensor.listen(lambda image: parse_lidar(image))
 
+    print("Attached sensors")
+
     # Project camera image on pygame
 
     display = pygame.display.set_mode(
@@ -169,6 +175,8 @@ try:
 
     clock = pygame.time.Clock()
     behaviour_tree.tick()
+
+    print("Running behaviour tree")
     while behaviour_tree.root.status == py_trees.common.Status.RUNNING:
         # clock.tick_busy_loop(100)
         while camera_holder.surface is None or lidar_holder.surface is None:
@@ -189,6 +197,10 @@ try:
         display.blit(textsurface, (1920*0.5*0.1, 1080*0.5*0.9))
         pygame.display.flip()
 
+except Exception as e:
+    print("Encountered an exception!")
+    print(e)
+
 finally:
     if vehicle is not None:
         vehicle.destroy()
@@ -196,4 +208,5 @@ finally:
         traffic_vehicle.destroy()
     if camera_sensor is not None:
         camera_sensor.destroy()
-    
+    if tm is not None:
+        tm.stop()

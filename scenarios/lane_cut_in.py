@@ -15,19 +15,22 @@ class LaneCutIn(BasicScenario):
             world, name, traffic_manager, ego_vehicle, other_vehicles
         )
         self._traffic_vehicle = other_vehicles[0]
+        print("Instantiated LaneCutIn")
+        self._setup()
+
+    def _setup(self):
+        # self._traffic_manager.set_auto_lane_change(self._ego_vehicle, False)
+        self._traffic_manager.set_collision_detection(self._traffic_vehicle, self._ego_vehicle, False)
 
     def create_tree(self):
 
-        tv_speed = 30
-        ego_speed = 20
-        ego_drive_distance = 600
+        tv_speed = 70.0/3.6
+        ego_speed = 60.0/3.6
+        ego_drive_distance = 300
 
-        tv_seq = py_trees.composites.Sequence()
-
-        drive_tv = py_trees.composites.Parallel(name="root",
-            policy=py_trees.common.ParallelPolicy.SuccessOnOne)
-        drive_tv.add_child(
-            SetVelocity(self._traffic_manager, self._traffic_vehicle, tv_speed))
+        scenario_sequence = py_trees.composites.Sequence()
+        scenario_sequence.add_child(SetVelocity(self._traffic_manager, self._ego_vehicle, ego_speed))
+        scenario_sequence.add_child(SetVelocity(self._traffic_manager, self._traffic_vehicle, tv_speed))
 
         drive_past = py_trees.composites.Sequence()
         drive_past.add_child(
@@ -39,34 +42,12 @@ class LaneCutIn(BasicScenario):
         drive_past.add_child(
             TriggerDistanceToVehicle(
                 self._ego_vehicle, self._traffic_vehicle,
-                2, comparision=-1
+                5, comparision=-1
             )
         )
 
-        drive_tv.add_child(drive_past)
+        scenario_sequence.add_child(drive_past)
+        scenario_sequence.add_child(LaneChange(self._traffic_manager, self._traffic_vehicle, True))
+        scenario_sequence.add_child(DriveDistance(self._ego_vehicle, ego_drive_distance))
 
-        tv_seq.add_child(drive_tv)
-        tv_seq.add_child(LaneChange(self._traffic_manager, self._traffic_vehicle, False))
-
-        tv_seq.add_child(
-            SetVelocity(self._traffic_manager, self._traffic_vehicle, tv_speed)
-        )
-
-        drive_ev = py_trees.composites.Parallel(
-            policy=py_trees.common.ParallelPolicy.SuccessOnOne
-        )
-        follow_lane_ev = SetVelocity(self._traffic_manager, self._ego_vehicle, ego_speed)
-
-        drive_distance_ev = DriveDistance(
-            self._ego_vehicle, ego_drive_distance
-        )
-        drive_ev.add_child(follow_lane_ev)
-        drive_ev.add_child(drive_distance_ev)
-
-        root = py_trees.composites.Parallel(
-            policy=py_trees.common.ParallelPolicy.SuccessOnOne
-        )
-        root.add_child(tv_seq)
-        root.add_child(drive_ev)
-
-        return root
+        return scenario_sequence
