@@ -19,7 +19,7 @@ class LaneCutIn(BasicScenario):
         self._setup()
 
     def _setup(self):
-        # self._traffic_manager.set_auto_lane_change(self._ego_vehicle, False)
+        self._traffic_manager.set_auto_lane_change(self._ego_vehicle, False)
         self._traffic_manager.set_collision_detection(self._traffic_vehicle, self._ego_vehicle, False)
 
     def create_tree(self):

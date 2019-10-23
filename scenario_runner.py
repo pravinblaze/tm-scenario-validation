@@ -9,9 +9,15 @@ import pygame
 import py_trees
 
 from scenarios.lane_cut_in import LaneCutIn
+from scenarios.test_tm_collision import TestTMCollision
+from scenarios.sun_glare_junction_demo import SunGlareJunction
+from scenarios.distance_to_leading_vehicle import DistanceToLeadingVehicle
 
 ip = "localhost"
 port = 2000
+display_scale = 0.9 # x1080p
+display_x = int(1920*display_scale)
+display_y = int(1080*display_scale)
 
 client = carla.Client(ip, port)
 world = client.get_world()
@@ -30,9 +36,8 @@ class surface_holder:
     def __init__(self):
         self.surface = None
 camera_holder = surface_holder()
-lidar_holder = surface_holder()
 
-scenario_data = {
+town_05_lane_cut_in = {
     "location1": {
         "ego_vehicle": {
             "model": "vehicle.lincoln.mkz2017",
@@ -45,16 +50,58 @@ scenario_data = {
     }
 }
 
+town_05_tm_collision = {
+    "location1": {
+        "ego_vehicle": {
+            "model": "vehicle.lincoln.mkz2017",
+            "position": [-51.5, -74.3, 5]
+        },
+        "traffic_vehicle": {
+            "model": "walker.pedestrian.0001",
+            "position": [-51.1, -16.7, 5]
+        }
+    }
+}
+
+town_03_sun_glare = {
+    "location1": {
+        "ego_vehicle": {
+            "model": "vehicle.tesla.model3",
+            "position": [19.0, -134.4, 0.5]
+        },
+        "traffic_vehicle": {
+            "model": "vehicle.tesla.model3",
+            "position": [83.7, -86.7, 8.5]
+        }
+    }
+}
+
+town_05_distance_to_leading_vehicle = {
+    "location1": {
+        "ego_vehicle": {
+            "model": "vehicle.lincoln.mkz2017",
+            "position": [-128.5, -75.0, 0.5]
+        },
+        "traffic_vehicle": {
+            "model": "vehicle.lincoln.mkz2017",
+            "position": [-128.5, -50.0, 0.5]
+        }
+    }
+}
+
+scenario_data = town_05_distance_to_leading_vehicle
 
 def spawn_vehicle(data):
     model = data["model"]
     loc = data["position"]
-    wp = world_map.get_waypoint(carla.Location(loc[0], loc[1], loc[2]))
+    location = carla.Location(loc[0], loc[1], loc[2])
+    wp = world_map.get_waypoint(location)
+    transform = carla.Transform(location, wp.transform.rotation)
     blueprint = random.choice(
         world.get_blueprint_library().filter(model))
     actor = None
     while actor is None:
-        actor = world.try_spawn_actor(blueprint, wp.transform)
+        actor = world.try_spawn_actor(blueprint, transform)
         if actor is None:
             print("Actor is still none !")
         print("Trying to spawn vehicle with blueprint : ", blueprint)
@@ -72,19 +119,8 @@ def magnitude(vector):
 
 try:
 
-    # Start traffic manager
-    long_pid = carla.TM_Parameters()
-    long_high_pid = carla.TM_Parameters()
-    lat_pid = carla.TM_Parameters()
-
-    long_pid.extend([0.1, 0.15, 0.01])
-    long_high_pid.extend([5, 0.09, 0.01])
-    lat_pid.extend([10.0, 0.01, 0.1])
-
-    traffic_manager = carla.TrafficManager(long_pid, long_high_pid, lat_pid, 0.0, 0.0, client)
+    traffic_manager = carla.GetTrafficManager(client)
     tm = traffic_manager
-    traffic_manager.start()
-    time.sleep(1)
 
     # Spawn vehicle
     vehicle = spawn_vehicle(
@@ -106,7 +142,11 @@ try:
 
     # Create behaviour tree
 
-    scenario = LaneCutIn(world, "LaneCutInDemo", traffic_manager, vehicle, [traffic_vehicle])
+    # scenario = LaneCutIn(world, "LaneCutInDemo", traffic_manager, vehicle, [traffic_vehicle])
+    # scenario = TestTMCollision(world, "TestTMCollision", traffic_manager, vehicle, [traffic_vehicle])
+    # scenario = SunGlareJunction(world, "SunGlareJunction", traffic_manager, vehicle, [traffic_vehicle])
+    scenario = DistanceToLeadingVehicle(world, "DistanceToLeadingVehicle", traffic_manager, vehicle, [traffic_vehicle])
+
     root = scenario.create_tree()
     behaviour_tree = py_trees.trees.BehaviourTree(root=root)
     behaviour_tree.tick()
@@ -116,23 +156,13 @@ try:
 
     bp_library = world.get_blueprint_library()
     bp = bp_library.find('sensor.camera.rgb')
-    bp.set_attribute('image_size_x', str(1920//2))
-    bp.set_attribute('image_size_y', str(1080//2))
+    bp.set_attribute('image_size_x', str(display_x))
+    bp.set_attribute('image_size_y', str(display_y))
 
-    camera_transform = carla.Transform(
-        carla.Location(x=-5.5, z=2.8), carla.Rotation(pitch=-15))
+    camera_transform = carla.Transform(carla.Location(x=0.0, y=-0.4, z=1.2), carla.Rotation(pitch=-5))
     camera_sensor = world.spawn_actor(
         bp,
         camera_transform,
-        attach_to=vehicle)
-
-    bp = bp_library.find('sensor.lidar.ray_cast')
-    bp.set_attribute('range', '5000')
-    lidar_transform = carla.Transform(
-        carla.Location(z=3), carla.Rotation(pitch=0))
-    lidar_sensor = world.spawn_actor(
-        bp,
-        lidar_transform,
         attach_to=vehicle)
 
     # Camera callback funtion
@@ -148,30 +178,11 @@ try:
 
     camera_sensor.listen(lambda image: parse_image(image))
 
-    # Lidar callback
-    def parse_lidar(image):
-        points = np.frombuffer(image.raw_data, dtype=np.dtype('f4'))
-        points = np.reshape(points, (int(points.shape[0]/3), 3))
-        lidar_data = np.array(points[:, :2])
-        lidar_data *= 540 / 100.0
-        lidar_data += (0.5 * 540, 0.5 * 540)
-        lidar_data = np.fabs(lidar_data)
-        lidar_data = lidar_data.astype(np.int32)
-        lidar_data = np.reshape(lidar_data, (-1, 2))
-        lidar_img_size = (540, 540, 3)
-        lidar_img = np.zeros(lidar_img_size)
-        lidar_img[tuple(lidar_data.T)] = (255, 255, 255)
-        lidar_holder.surface = pygame.surfarray.make_surface(lidar_img)
-
-    lidar_sensor.listen(lambda image: parse_lidar(image))
-
     print("Attached sensors")
 
     # Project camera image on pygame
 
-    display = pygame.display.set_mode(
-        (1920//2 + 1080//2, 1080//2),
-        pygame.HWSURFACE | pygame.DOUBLEBUF)
+    display = pygame.display.set_mode((display_x, display_y), pygame.HWSURFACE | pygame.DOUBLEBUF)
 
     clock = pygame.time.Clock()
     behaviour_tree.tick()
@@ -179,12 +190,11 @@ try:
     print("Running behaviour tree")
     while behaviour_tree.root.status == py_trees.common.Status.RUNNING:
         # clock.tick_busy_loop(100)
-        while camera_holder.surface is None or lidar_holder.surface is None:
+        while camera_holder.surface is None:
             # print 'waiting for surface'
             pass
         behaviour_tree.tick(post_tick_handler=print_tree)
         display.blit(camera_holder.surface, (0, 0))
-        display.blit(lidar_holder.surface, (1920//2, 0))
         ev_velocity = vehicle.get_velocity()
         tv_velocity = traffic_vehicle.get_velocity()
         textsurface = myfont.render(
@@ -194,7 +204,7 @@ try:
             str(round(magnitude(tv_velocity)*3.6)),
             True, (255, 255, 255)
         )
-        display.blit(textsurface, (1920*0.5*0.1, 1080*0.5*0.9))
+        display.blit(textsurface, (display_x*0.1, display_y*0.9))
         pygame.display.flip()
 
 except Exception as e:

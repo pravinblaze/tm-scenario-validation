@@ -1,8 +1,8 @@
 import math
 
-import py_trees
 import carla
-
+import py_trees
+import time
 
 # ======================= Actions ============================= #
 
@@ -15,7 +15,7 @@ class SetVelocity(py_trees.behaviour.Behaviour):
         self._tm = traffic_manager
 
     def update(self):
-        self._tm.set_vehicle_target_velocity(self._vehicle.id, self._target_velocity)
+        self._tm.set_vehicle_target_velocity(self._vehicle, self._target_velocity)
         return py_trees.common.Status.SUCCESS
 
 
@@ -26,7 +26,7 @@ class StopVehicle(py_trees.behaviour.Behaviour):
         self._tm = traffic_manager
 
     def update(self):
-        self._tm.set_vehicle_target_velocity(self._vehicle.id, 0.0)
+        self._tm.set_vehicle_target_velocity(self._vehicle, 0.0)
         return py_trees.common.Status.SUCCESS
 
 
@@ -84,9 +84,30 @@ class TriggerDistanceToVehicle(py_trees.behaviour.Behaviour):
                     self._other_vehicle.get_location()
                 ) < self._distance:
             new_status = py_trees.common.Status.SUCCESS
+            print("Approached !")
         elif self._comparision == -1 and \
                 self._reference_vehicle.get_location().distance(
                     self._other_vehicle.get_location()
                 ) > self._distance:
             new_status = py_trees.common.Status.SUCCESS
+        return new_status
+
+
+class TriggerAfterDuration(py_trees.behaviour.Behaviour):
+    def __init__(self, duration, name="TriggerAfterDuration"):
+        super(TriggerAfterDuration, self).__init__(name)
+        self._duration = duration
+        self._initial_time = None
+
+    def setup(self):
+        self._initial_time = time.time()
+
+    def update(self):
+        new_status = py_trees.common.Status.RUNNING
+        if self._initial_time is not None:
+            current_time = time.time()
+            if (current_time - self._initial_time) > self._duration:
+                new_status = py_trees.common.Status.SUCCESS
+        else:
+            self.setup()
         return new_status
